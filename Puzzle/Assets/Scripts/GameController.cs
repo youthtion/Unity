@@ -23,7 +23,7 @@ public class GameController : MonoBehaviour
     [SerializeField]
     private GameObject btnStart;
     [SerializeField]
-    private TextMeshProUGUI titleLabel;
+    private TextMeshProUGUI titleText;
     [SerializeField]
     private TextMeshProUGUI stageLabel;
     [SerializeField]
@@ -400,8 +400,8 @@ public class GameController : MonoBehaviour
         if (btnStart != null){
             btnStart.SetActive(false);
         }
-        if (titleLabel != null){
-            titleLabel.text = "";
+        if (titleText != null){
+            titleText.gameObject.SetActive(false);
         }
         if (screenshotBtn != null){
             screenshotBtn.SetActive(_state == EGameState.GS_HELP);

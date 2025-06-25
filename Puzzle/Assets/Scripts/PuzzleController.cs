@@ -2,13 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-//滑鼠點擊類型
-public enum EMouseType
-{
-    MT_LEFT,  //左鍵
-    MT_RIGHT, //右鍵
-}
-
 public class PuzzleController : MonoBehaviour
 {
     private const float CAMERA_Z = -10.0f;
@@ -30,6 +23,7 @@ public class PuzzleController : MonoBehaviour
     private int puzzleLayer; //拼圖用顯示層
     private float curZ = -0.01f; //置頂z座標
     private bool eventActive = false; //事件開關
+    private bool isDragging = false;
 
     private void Start()
     {
@@ -42,21 +36,21 @@ public class PuzzleController : MonoBehaviour
             return;
         }
         //拼圖抓取&旋轉事件, 傳入點擊的拼圖節點
-        if (Input.GetMouseButtonDown((int)EMouseType.MT_LEFT) || Input.GetMouseButtonDown((int)EMouseType.MT_RIGHT)){
+        if (Input.GetMouseButtonDown(0)){
             Vector3 mouse_pos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
             RaycastHit2D hit = Physics2D.Raycast((Vector2)mouse_pos, Vector2.zero);
             //以物件顯示層判斷是否點擊為拼圖物件
             if (hit.collider != null && hit.collider.gameObject.layer == puzzleLayer){
-                onMouseDown(mouse_pos, Input.GetMouseButtonDown((int)EMouseType.MT_LEFT) ? EMouseType.MT_LEFT : EMouseType.MT_RIGHT, hit.collider.gameObject.transform.parent.gameObject);
+                onMouseDown(mouse_pos, hit.collider.gameObject.transform.parent.gameObject);
             }
         }
         //拼圖移動事件
-        if (dragPuzzle && Input.GetMouseButton((int)EMouseType.MT_LEFT)){
+        if (dragPuzzle && Input.GetMouseButton(0)){
             Vector3 mouse_pos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
             onMouseMove(mouse_pos);
         }
         //拼圖放下事件
-        if (dragPuzzle && Input.GetMouseButtonUp((int)EMouseType.MT_LEFT)){
+        if (dragPuzzle && Input.GetMouseButtonUp(0)){
             onMouseUp();
         }
     }
@@ -97,14 +91,17 @@ public class PuzzleController : MonoBehaviour
                 cell.AddComponent<BoxCollider2D>();
             }
             //設定拼圖置頂
-            puzzle.transform.localPosition = new Vector3(-board.Count * Consts.CELL_WIDTH, (board.Count * Consts.CELL_WIDTH / puzzles.Count) * i - board.Count * Consts.CELL_WIDTH * 0.5f, curZ);
+            puzzle.transform.localPosition = new Vector3(
+                board.Count * Consts.CELL_WIDTH / puzzles.Count * i - (board.Count - 1) * Consts.CELL_WIDTH * 0.5f ,
+                -(board.Count + 1) * Consts.CELL_WIDTH,
+                curZ);
             curZ -= 0.01f;
             puzzle.transform.SetParent(transform, false);
         }
     }
 
     //拼圖抓取&旋轉事件
-    public void onMouseDown(Vector3 _cur_pos, EMouseType _button, GameObject _puzzle)
+    public void onMouseDown(Vector3 _cur_pos, GameObject _puzzle)
     {
         if (_puzzle.transform.parent == null){
             return;
@@ -122,36 +119,23 @@ public class PuzzleController : MonoBehaviour
         if (fitCells.Count == _puzzle.transform.childCount){
             GameEvents.onPickPuzzle(fitCells, _puzzle.name);
         }
-        //右鍵旋轉
-        if (_button == EMouseType.MT_RIGHT && GameModel.ins.getBuff(EBuffType.BD_ROTATE) == 0){
-            Vector3 puzzle_pos = _puzzle.transform.position; //游標在畫面上的座標轉換在PuzzleController中的座標
-            Vector3 offset = _cur_pos - puzzle_pos; //座標與puzzle位置設定差
-            float rad = Mathf.PI / -2f; //旋轉弧度(-90度)
-            float cos = Mathf.Cos(rad);
-            float sin = Mathf.Sin(rad);
-            //設定新位置以游標在PuzzleController中的座標為旋轉中心, 扣除旋轉後與puzzle位置設定差
-            float rx = offset.x * cos - offset.y * sin;
-            float ry = offset.x * sin + offset.y * cos;
-            Vector3 new_pos = new Vector3(_cur_pos.x - rx, _cur_pos.y - ry, curZ);
-            _puzzle.transform.position = new_pos;
-            Vector3 euler = _puzzle.transform.eulerAngles;
-            euler.z = (euler.z - 90f) % 360f;
-            _puzzle.transform.eulerAngles = euler;
-        }
         //左鍵抓取拼圖紀錄puzzle開始位置設定, 游標位置, 拼圖節點
-        else if (_button == EMouseType.MT_LEFT && dragPuzzle == null){
+        if (dragPuzzle == null){
             _puzzle.transform.position = new Vector3(_puzzle.transform.position.x, _puzzle.transform.position.y, curZ); //設定點擊拼圖置頂
             puzzleStartPos = _puzzle.transform.position;
             dragStartPos = _cur_pos;
             dragPuzzle = _puzzle;
+            isDragging = false;
         }
         curZ -= 0.01f;
     }
 
     public void onMouseMove(Vector3 _cur_pos)
     {
-        //若游標移動中有紀錄的拼圖節點
-        if (dragPuzzle != null){
+        if(isDragging == false && Vector2.Distance(dragStartPos, _cur_pos) > 10f){
+            isDragging = true;
+        }
+        if(isDragging == true){
             //計算游標移動量, 設定puzzle開始位置差
             float dx = dragStartPos.x - _cur_pos.x;
             float dy = dragStartPos.y - _cur_pos.y;
@@ -161,16 +145,30 @@ public class PuzzleController : MonoBehaviour
 
     public void onMouseUp()
     {
-        //若游標放開時有紀錄的拼圖節點
-        if (dragPuzzle != null){
-            getFitCell(dragPuzzle); //取得拼圖重疊棋盤格資訊
-            //重疊棋盤格與拼圖大小一致, 處理拼圖放入棋盤
-            if (fitCells.Count == dragPuzzle.transform.childCount){
-                GameEvents.onPlacePuzzle(fitCells, dragPuzzle.name);
-                return;
-            }
+        //點選旋轉
+        if (isDragging == false && GameModel.ins.getBuff(EBuffType.BD_ROTATE) == 0){
+            Vector3 puzzle_pos = dragPuzzle.transform.position; //游標在畫面上的座標轉換在PuzzleController中的座標
+            Vector3 offset = dragStartPos - puzzle_pos; //座標與puzzle位置設定差
+            float rad = Mathf.PI / -2f; //旋轉弧度(-90度)
+            float cos = Mathf.Cos(rad);
+            float sin = Mathf.Sin(rad);
+            //設定新位置以游標在PuzzleController中的座標為旋轉中心, 扣除旋轉後與puzzle位置設定差
+            float rx = offset.x * cos - offset.y * sin;
+            float ry = offset.x * sin + offset.y * cos;
+            dragPuzzle.transform.position = new Vector3(dragStartPos.x - rx, dragStartPos.y - ry, dragPuzzle.transform.position.z);
+            Vector3 euler = dragPuzzle.transform.eulerAngles;
+            euler.z = (euler.z - 90f) % 360f;
+            dragPuzzle.transform.eulerAngles = euler;
+        }
+        getFitCell(dragPuzzle); //取得拼圖重疊棋盤格資訊
+        //重疊棋盤格與拼圖大小一致, 處理拼圖放入棋盤
+        if (fitCells.Count == dragPuzzle.transform.childCount){
+            GameEvents.onPlacePuzzle(fitCells, dragPuzzle.name);
+        }
+        else{
             dragPuzzle = null;
         }
+        isDragging = false;
     }
 
     public void getFitCell(GameObject _puzzle)
